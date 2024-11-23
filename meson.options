@@ -1,0 +1,6 @@
+option(
+	'dia_sdk_path',
+	type: 'string',
+	value: 'C:/Program Files/Microsoft Visual Studio/2022/Community/DIA SDK',
+	description: 'MSDIA SDK path (where include and lib are)'
+)
