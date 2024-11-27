@@ -5,6 +5,9 @@ document.addEventListener("DOMContentLoaded", () => {
 	const input = document.querySelector("#input");
 	const output = document.querySelector("#output");
 
+	const te = new TextEncoder();
+	const td = new TextDecoder();
+
 	const magic = new TextEncoder().encode("Microsoft C/C++ MSF 7.00\r\n\x1A\x44\x53\x00\x00\x00");
 	const infoIndex = 1;
 	const dbiIndex = 3;
@@ -254,7 +257,6 @@ document.addEventListener("DOMContentLoaded", () => {
 			}
 			const [ pdbsStrings, pdbsCursor ] = await getStreamU32LeString(infoIndex, 28);
 			const [ pdbsNameIndices, pdbsCursor2 ] = await getStreamHashTable(infoIndex, pdbsCursor, 4);
-			const td = new TextDecoder();
 			for (const [ key, value ] of pdbsNameIndices) {
 				pdbsNames.set(td.decode(zstr(pdbsStrings, key)), u32Le(value, 0));
 			}
@@ -278,7 +280,6 @@ document.addEventListener("DOMContentLoaded", () => {
 				throw new BadPdbError("missing /names steam");
 			}
 			const namesData = await getStreamData(namesIndex, 0, getStreamSize(namesIndex));
-			const td = new TextDecoder();
 			const getName = (offset) => {
 				return td.decode(zstr(namesData, offset + 12));
 			};
@@ -524,22 +525,29 @@ document.addEventListener("DOMContentLoaded", () => {
 				return [ u16Le(data, 2), data ];
 			};
 
-			const getFunctionAddress = async (name) => {
-				const nameData = new TextEncoder().encode(name);
+			const getSymbolAddress = async (name, kind) => {
+				const nameData = te.encode(name);
 				for (const psymOffset of bucketWords[nameHash(nameData, bucketWords.length - 1)]) {
 					const [ refKind, refData ] = await getSymbolData(symrecIndex, psymOffset);
-					if (refKind == 0x1125 && u8ArrayCompare(zstr(refData, 14), nameData)) {
-						const symStart = u32Le(refData, 8);
-						const modIndex = u16Le(refData, 12) - 1;
-						const [ symKind, symData ] = await getSymbolData(modInfoByFileIndex[modIndex].streamIndex, symStart);
-						if (symKind == 0x1110 && u16Le(symData, 36) === expectSection) {
-							return u32Le(symData, 32);
-						}
+					if (refKind === kind && u8ArrayCompare(zstr(refData, 14), nameData)) {
+						return refData;
+					}
+				}
+			}
+
+			const getFunctionInfo = async (name) => {
+				const refData = await getSymbolAddress(name, 0x1125);
+				if (refData) {
+					const symStart = u32Le(refData, 8);
+					const modIndex = u16Le(refData, 12) - 1;
+					const [ symKind, symData ] = await getSymbolData(modInfoByFileIndex[modIndex].streamIndex, symStart);
+					if (symKind === 0x1110 && u16Le(symData, 36) === expectSection) {
+						return u32Le(symData, 32);
 					}
 				}
 			};
 
-			return getFunctionAddress;
+			return getFunctionInfo;
 		};
 		const getGlobalFunctionInfo = await getGetFunctionInfo(globalIndex, false);
 
@@ -565,7 +573,7 @@ document.addEventListener("DOMContentLoaded", () => {
 							const kind = u32Le(c13Data, c13Cursor);
 							const length = u32Le(c13Data, c13Cursor + 4);
 							c13Cursor += 8;
-							if (kind == 0xF2) {
+							if (kind === 0xF2) {
 								const offset = u32Le(c13Data, c13Cursor);
 								const segment = u16Le(c13Data, c13Cursor + 4);
 								const flags = u16Le(c13Data, c13Cursor + 6);
@@ -608,7 +616,7 @@ document.addEventListener("DOMContentLoaded", () => {
 										"getSublineFromAddr": getGetEnclosingFragment(lines),
 									});
 								}
-							} else if (kind == 0xF4) {
+							} else if (kind === 0xF4) {
 								checksumData = c13Data.subarray(c13Cursor, c13Cursor + length);
 							}
 							if (c13Cursor + length > c13ByteSize) {
